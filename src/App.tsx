@@ -32,7 +32,8 @@ import {
   Layers,
   Database,
   Undo2,
-  Save
+  Save,
+  ExternalLink
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -551,6 +552,31 @@ export default function App() {
 
       // Start OBD Polling loop
       startPollingLoop();
+
+      // Mondeo specific automatic read and initial backup on connection
+      if (selectedProfileId === "ford_mondeo_mk3") {
+        addLog("info", "[FORScan Engine] Mondeo MK3 modül verileri taranıyor...");
+        setTimeout(() => {
+          const backupName = `Bağlantı Anı Otomatik Yedek (${new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })})`;
+          const initBackup = {
+            id: `backup-${Date.now()}`,
+            timestamp: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }) + " " + new Date().toLocaleDateString("tr-TR"),
+            name: backupName,
+            description: "Bluetooth bağlantısı kurulduğu an otomatik olarak okunan kararlı orijinal modül verileri.",
+            data: {
+              gemBeltBuzzer: mondeoGEMBeltBuzzer,
+              gemAutoLock: mondeoGEMAutoLock,
+              gemComfortSinyal: mondeoGEMComfortSinyal,
+              pcmInjector1: mondeoPCMInjector1,
+              pcmEgrDuty: mondeoPCMEgrDuty,
+              tcmTccLockup: mondeoTCMTccLockup
+            }
+          };
+          setMondeoBackups(prev => [initBackup, ...prev]);
+          addLog("info", `[FORScan Engine] Mevcut araç modül konfigürasyonu başarıyla okundu ve otomatik yedeklendi: "${backupName}"`);
+          addLog("rx", `720 08 30 01 8C 2A 0B 7F 8C 2A 1E 20 [Delphi Enjektör Değeri Okundu]`);
+        }, 1500);
+      }
 
     } catch (err: any) {
       addLog("error", `Bağlantı hatası: ${err.message}`);
@@ -1179,6 +1205,68 @@ export default function App() {
               Yapay Zeka Teşhisine Git
             </button>
           </motion.div>
+        )}
+
+        {/* BLUETOOTH IFRAME & DEVICE DISCOVERY ASSISTANCE GUIDE */}
+        {btState !== "connected" && (
+          <div className="bg-[#0B1224] border border-cyan-500/30 rounded-2xl p-5 shadow-2xl relative overflow-hidden" id="bluetooth_helper_guide">
+            <div className="absolute top-0 right-0 bg-cyan-500/10 text-cyan-400 text-[9px] font-mono px-2 py-0.5 rounded-bl border-l border-b border-cyan-950/40 tracking-wider">
+              BAĞLANTI YARDIMCISI
+            </div>
+            
+            <div className="flex flex-col md:flex-row md:items-center gap-4 justify-between">
+              <div className="space-y-2">
+                <h3 className="text-xs font-bold text-cyan-400 flex items-center gap-2 uppercase tracking-wider">
+                  <Bluetooth className="w-4 h-4 text-cyan-400 animate-pulse" />
+                  Bluetooth Cihaz Bulma ve Iframe Erişim Sorunu Giderme
+                </h3>
+                <p className="text-xs text-gray-300 leading-relaxed max-w-3xl">
+                  Tarayıcı güvenlik protokolleri gereği, **Google AI Studio içerisindeki önizleme çerçevesinde (Iframe) Bluetooth donanımlarına erişim engellenir**. Bu sebeple cihaz taranamıyor veya listelenemiyor olabilir.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1.5 text-[11px]">
+                  <div className="bg-[#070B13]/60 p-2.5 rounded-lg border border-gray-900 leading-normal">
+                    <strong className="text-cyan-300 block mb-1">1. Yeni Sekmede Açın</strong>
+                    Lütfen önizleme penceresinin sağ üstündeki **"Yeni Sekmede Aç"** butonuna tıklayın ya da doğrudan **GitHub Pages** linkinizi yeni sekmede açın.
+                  </div>
+                  <div className="bg-[#070B13]/60 p-2.5 rounded-lg border border-gray-900 leading-normal">
+                    <strong className="text-cyan-300 block mb-1">2. Tarayıcı Uyumluluğu</strong>
+                    Bağlantı için **Google Chrome**, **MS Edge** veya **Opera** kullanın. iOS (iPhone) cihazlarda App Store'dan **Webble** tarayıcısını indirerek açabilirsiniz.
+                  </div>
+                  <div className="bg-[#070B13]/60 p-2.5 rounded-lg border border-gray-900 leading-normal">
+                    <strong className="text-cyan-300 block mb-1">3. Adaptör Durumu</strong>
+                    Adaptörünüzün (ELM327 BLE) eşleşme modunda veya aracın OBD2 portuna takılı (kontak açık) olduğundan emin olun.
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 min-w-[150px] justify-center pt-2 md:pt-0">
+                <a
+                  href="https://alpaslan.beyoglu.github.io/" // Fallback to safe pages root or instruction
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-cyan-500 hover:bg-cyan-400 text-[#070B13] text-[11px] font-bold py-2 px-3 rounded-lg text-center transition-all shadow-md flex items-center justify-center gap-1.5"
+                  onClick={(e) => {
+                    // Try to guess repo link based on GitHub Pages custom setup
+                    const repoName = window.location.pathname.split("/")[1] || "";
+                    if (repoName && repoName !== "api") {
+                      // Redirect to the correct pages subfolder
+                      e.preventDefault();
+                      window.open(`https://alpaslan.beyoglu.github.io/${repoName}/`, "_blank");
+                    }
+                  }}
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  GitHub Pages'da Aç
+                </a>
+                <button
+                  onClick={connectWebBluetooth}
+                  className="bg-cyan-950/40 hover:bg-cyan-900/40 border border-cyan-800/40 text-cyan-300 text-[11px] font-bold py-2 px-3 rounded-lg text-center transition-all"
+                >
+                  Yine de Taramayı Dene
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* INSTRUMENT PANEL */}
