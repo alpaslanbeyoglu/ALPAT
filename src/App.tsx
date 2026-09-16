@@ -627,10 +627,15 @@ export default function App() {
   };
 
   // Simulate scanning progress UI
-  const handleScanDtc = () => {
+  const handleScanDtc = async () => {
     setIsScanningDtc(true);
     setScanProgress(0);
     setScanMessage("Araç sistemleri ve CAN Bus taranıyor...");
+
+    if (btState === "connected" && writeCharRef.current) {
+      addLog("info", "Gerçek ELM327 / vLink adaptörüne Mode 03 (DTC Arıza Oku) komutu gönderiliyor...");
+      await sendBLECommand("03");
+    }
 
     const steps = [
       "SAE J1850 / ISO 15765 protokol hızı kontrol ediliyor...",
@@ -972,6 +977,54 @@ export default function App() {
 
       {/* Main Container */}
       <main className="max-w-6xl mx-auto p-4 space-y-6" id="app_main_content">
+
+        {/* PROMINENT CONNECTION STATUS BANNER WHEN CONNECTED */}
+        <AnimatePresence>
+          {btState === "connected" && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="bg-gradient-to-r from-emerald-950/80 via-[#0B1E14] to-[#0A1810] border border-emerald-500/40 rounded-2xl p-4 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4"
+            >
+              <div className="flex items-center gap-3">
+                <div className="relative flex h-4 w-4">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                      BLUETOOTH BAĞLANTISI AKTİF
+                    </span>
+                    <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-mono px-2 py-0.5 rounded-md border border-emerald-500/30">
+                      ELM327 / vLink / iCar Pro
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-300 mt-0.5">
+                    Bağlı Cihaz: <strong className="text-white">{activeDevice || "OBD2 Adaptörü"}</strong> • Canlı OBD veri akışı ve arıza tespiti (DTC) devrede.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  onClick={handleScanDtc}
+                  className="flex-1 sm:flex-none bg-emerald-500 hover:bg-emerald-400 text-[#070B13] text-xs font-bold py-2 px-4 rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Hemen Arıza Tara (03)
+                </button>
+                <button
+                  onClick={disconnectBluetooth}
+                  className="bg-red-950/50 hover:bg-red-900/50 text-red-300 border border-red-900/50 text-xs font-semibold py-2 px-3 rounded-xl transition-all"
+                >
+                  Bağlantıyı Kes
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         
         {/* Settings Panel */}
         <AnimatePresence>
@@ -2009,7 +2062,11 @@ export default function App() {
                 </button>
 
                 <button
-                  onClick={() => {
+                  onClick={async () => {
+                    if (btState === "connected" && writeCharRef.current) {
+                      addLog("info", "Gerçek adaptöre Mode 04 (Hata Kodlarını Sil / MIL Söndür) komutu gönderiliyor...");
+                      await sendBLECommand("04");
+                    }
                     setDtcCodes([]);
                     setSimErrorType("NONE");
                     addLog("info", "ECU hata hafızası silme komutu gönderildi (PID: 04). Motor arıza lambası söndürüldü.");
