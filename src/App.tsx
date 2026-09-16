@@ -132,6 +132,8 @@ export default function App() {
   const [selectedProfileId, setSelectedProfileId] = useState<string>("ford_mondeo_mk3");
   const [userApiKey, setUserApiKey] = useState<string>("");
   const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [showBtErrorModal, setShowBtErrorModal] = useState<boolean>(false);
+  const [btErrorMessage, setBtErrorMessage] = useState<string>("");
   const [customDtc, setCustomDtc] = useState<string>("");
 
   // Advanced Bluetooth Connection Options
@@ -425,8 +427,10 @@ export default function App() {
   const connectWebBluetooth = async () => {
     const nav = navigator as any;
     if (!nav.bluetooth) {
-      addLog("error", "Web Bluetooth API bu cihaz/tarayıcı üzerinde desteklenmiyor. iOS Safari için iOS 15+ ve HTTPS gereklidir.");
-      alert("HATA: Tarayıcınız Web Bluetooth API desteklemiyor. Lütfen simülatör modunu kullanın veya uyumlu bir cihazda (Safari iOS/Chrome Desktop) HTTPS üzerinden çalıştırın.");
+      const msg = "Tarayıcınız veya cihazınız Web Bluetooth API'yi desteklemiyor (Örn: Apple iOS Safari Bluetooth desteklemez; Android'de ise HTTPS üzerinden çalıştırılması gerekir).";
+      addLog("error", msg);
+      setBtErrorMessage(msg);
+      setShowBtErrorModal(true);
       return;
     }
 
@@ -2213,6 +2217,68 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* BLUETOOTH UNSUPPORTED MOBILE MODAL */}
+      <AnimatePresence>
+        {showBtErrorModal && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#0B1224] border border-red-500/40 rounded-2xl p-6 max-w-md w-full shadow-2xl relative space-y-4"
+            >
+              <div className="flex items-center gap-3">
+                <div className="bg-red-500/20 p-3 rounded-xl border border-red-500/30">
+                  <ShieldAlert className="w-6 h-6 text-red-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                    Bluetooth Desteklenmiyor
+                  </h3>
+                  <p className="text-[11px] text-red-400">
+                    Mobil Cihaz veya Tarayıcı Kısıtlaması
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-[#070B13] p-3.5 rounded-xl border border-gray-900 text-xs text-gray-300 leading-relaxed space-y-2">
+                <p>
+                  {btErrorMessage}
+                </p>
+                <p className="text-[11px] text-gray-400">
+                  <strong>📱 iOS (iPhone / iPad):</strong> Apple Safari tarayıcısı yerel olarak Bluetooth desteklemez. Lütfen App Store'dan <span className="text-cyan-400 font-bold">Bluefy</span> veya <span className="text-cyan-400 font-bold">WebBLE</span> tarayıcısını indirip bu adresi orada açın.
+                </p>
+                <p className="text-[11px] text-gray-400">
+                  <strong>🤖 Android:</strong> Google Chrome kullanmanız ve sitenin HTTPS üzerinden açık olması gerekir.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2 pt-2">
+                <button
+                  onClick={() => {
+                    setIsSimulator(true);
+                    setBtState("connected");
+                    setActiveDevice("Sanal OBD2 Simülatör (Ford Mondeo)");
+                    setShowBtErrorModal(false);
+                    addLog("info", "[Sanal Mod] Bluetooth desteklenmeyen cihazda simülatör modu aktif edildi.");
+                  }}
+                  className="w-full bg-cyan-500 hover:bg-cyan-400 text-[#070B13] text-xs font-bold py-2.5 px-4 rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                >
+                  <Cpu className="w-4 h-4" />
+                  Sanal Modu Başlat (Test Et)
+                </button>
+                <button
+                  onClick={() => setShowBtErrorModal(false)}
+                  className="w-full bg-[#141B2D] hover:bg-[#1F2C47] text-gray-300 text-xs font-semibold py-2.5 px-4 rounded-xl transition-all"
+                >
+                  Anladım, Kapat
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </div>
   );
