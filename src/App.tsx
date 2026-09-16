@@ -373,6 +373,7 @@ export default function App() {
     const dtcIdx = cleanRes.indexOf("43");
     if (dtcIdx !== -1) {
       const hexPayload = cleanRes.substring(dtcIdx + 2);
+      addLog("info", `DTC Raw Hex Payload: ${hexPayload}`);
       if (cleanRes.includes("NODATA") || hexPayload.startsWith("0000") || hexPayload === "00" || hexPayload === "") {
         result.dtcCodes = [];
       } else {
