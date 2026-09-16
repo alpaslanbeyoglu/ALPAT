@@ -33,7 +33,8 @@ import {
   Database,
   Undo2,
   Save,
-  ExternalLink
+  ExternalLink,
+  ShieldCheck
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -1013,6 +1014,54 @@ export default function App() {
       {/* Main Container */}
       <main className="max-w-6xl mx-auto p-4 space-y-6" id="app_main_content">
 
+        {/* REDESIGNED ENTRY / CONNECTION GATEWAY (SHOWN ONLY WHEN NOT CONNECTED & NOT SIMULATOR) */}
+        {btState !== "connected" && !isSimulator && (
+          <div className="bg-gradient-to-br from-[#0B1224] via-[#0E1726] to-[#070B13] border border-cyan-500/40 rounded-3xl p-6 md:p-8 shadow-2xl relative overflow-hidden mb-6" id="connection_gateway">
+            <div className="absolute -right-10 -bottom-10 w-48 h-48 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+            
+            <div className="max-w-3xl space-y-4">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-semibold">
+                <ShieldCheck className="w-4 h-4" />
+                Alpat OBD2 Akıllı Araç Teşhis ve Kodlama Sistemi
+              </div>
+
+              <h2 className="text-xl md:text-2xl font-bold text-white tracking-tight">
+                Araç Adaptörünüze Bağlanın veya Test Simülatörünü Başlatın
+              </h2>
+
+              <p className="text-xs md:text-sm text-gray-300 leading-relaxed">
+                ELM327 BLE (iCar Pro, vLinker, Veepeak vb.) adaptörünüzü Bluetooth ile eşleştirerek gerçek zamanlı motor canlı verilerini okuyun, motor arıza lambası (MIL) durumunu denetleyin ve DTC hata kodlarını tarayıp sıfırlayın.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
+                <button
+                  onClick={connectWebBluetooth}
+                  disabled={btState === "scanning" || btState === "connecting" || btState === "initializing"}
+                  className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-[#070B13] font-bold text-sm py-3.5 px-5 rounded-2xl shadow-xl transition-all flex items-center justify-center gap-2"
+                  id="gateway_connect_btn"
+                >
+                  <Bluetooth className="w-5 h-5 animate-pulse" />
+                  {btState === "scanning" ? "Cihazlar Taranıyor..." : btState === "connecting" ? "Bağlanılıyor..." : "Bluetooth Adaptöre Bağlan"}
+                </button>
+
+                <button
+                  onClick={() => {
+                    setIsSimulator(true);
+                    setBtState("connected");
+                    setActiveDevice("Sanal OBD2 Simülatör (Ford Mondeo MK3)");
+                    addLog("info", "Sanal test simülatörü başarıyla başlatıldı.");
+                  }}
+                  className="w-full bg-[#141B2D] hover:bg-[#1E293B] border border-gray-700/60 text-white font-semibold text-sm py-3.5 px-5 rounded-2xl shadow-md transition-all flex items-center justify-center gap-2"
+                  id="gateway_simulator_btn"
+                >
+                  <Cpu className="w-5 h-5 text-cyan-400" />
+                  Sanal Simülatörü Başlat (Test Et)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* PROMINENT CONNECTION STATUS BANNER WHEN CONNECTED */}
         <AnimatePresence>
           {btState === "connected" && (
@@ -1301,7 +1350,7 @@ export default function App() {
         )}
 
         {/* BLUETOOTH IFRAME & DEVICE DISCOVERY ASSISTANCE GUIDE */}
-        {btState !== "connected" && (
+        {btState !== "connected" && !isSimulator && (
           <div className="bg-[#0B1224] border border-cyan-500/30 rounded-2xl p-5 shadow-2xl relative overflow-hidden" id="bluetooth_helper_guide">
             <div className="absolute top-0 right-0 bg-cyan-500/10 text-cyan-400 text-[9px] font-mono px-2 py-0.5 rounded-bl border-l border-b border-cyan-950/40 tracking-wider">
               BAĞLANTI YARDIMCISI
