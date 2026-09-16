@@ -1,5 +1,5 @@
 {
-  "name": "OBD2 BLE Diagnostics Dashboard",
+  "name": "alpat",
   "description": "A premium dark-themed vehicle OBD2 diagnostics dashboard using Web Bluetooth API and Gemini AI for advanced vehicle fault analysis.",
   "requestFramePermissions": ["bluetooth"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
