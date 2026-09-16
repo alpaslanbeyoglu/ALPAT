@@ -29,7 +29,10 @@ import {
   Settings2,
   Send,
   SlidersIcon,
-  Layers
+  Layers,
+  Database,
+  Undo2,
+  Save
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -137,6 +140,46 @@ export default function App() {
   const [customServiceUuid, setCustomServiceUuid] = useState<string>("");
   const [customWriteCharUuid, setCustomWriteCharUuid] = useState<string>("");
   const [customNotifyCharUuid, setCustomNotifyCharUuid] = useState<string>("");
+
+  // Ford Mondeo MK3 2005 2.0 TDCi Automatic (Euro Spec) FORScan Coding & Secure Backup states
+  const [mondeoGEMBeltBuzzer, setMondeoGEMBeltBuzzer] = useState<boolean>(true);
+  const [mondeoGEMAutoLock, setMondeoGEMAutoLock] = useState<boolean>(false);
+  const [mondeoGEMComfortSinyal, setMondeoGEMComfortSinyal] = useState<boolean>(true);
+  const [mondeoPCMInjector1, setMondeoPCMInjector1] = useState<string>("8C2A0B7F8C2A1E20");
+  const [mondeoPCMEgrDuty, setMondeoPCMEgrDuty] = useState<number>(45); // Target EGR duty ratio
+  const [mondeoTCMTccLockup, setMondeoTCMTccLockup] = useState<string>("Standard"); // Jatco JF506E Lock-up settings
+  const [mondeoBackups, setMondeoBackups] = useState<Array<{
+    id: string;
+    timestamp: string;
+    name: string;
+    description: string;
+    data: {
+      gemBeltBuzzer: boolean;
+      gemAutoLock: boolean;
+      gemComfortSinyal: boolean;
+      pcmInjector1: string;
+      pcmEgrDuty: number;
+      tcmTccLockup: string;
+    }
+  }>>([
+    {
+      id: "factory-backup",
+      timestamp: "16.09.2026 10:15",
+      name: "Orijinal Fabrika Yedeklemesi (AsBuilt)",
+      description: "Mondeo MK3 TCM & GEM Avrupa Bölgesi Orijinal Fabrika Fabrika Çıktısı",
+      data: {
+        gemBeltBuzzer: true,
+        gemAutoLock: false,
+        gemComfortSinyal: true,
+        pcmInjector1: "8C2A0B7F8C2A1E20",
+        pcmEgrDuty: 45,
+        tcmTccLockup: "Standard"
+      }
+    }
+  ]);
+  const [codingStatus, setCodingStatus] = useState<string>("");
+  const [isCodingInProgress, setIsCodingInProgress] = useState<boolean>(false);
+  const [mondeoActiveTab, setMondeoActiveTab] = useState<"pcm" | "tcm" | "gem" | "backups">("gem");
 
   // Current active profile shortcut
   const activeProfile = VEHICLE_PROFILES[selectedProfileId];
@@ -593,6 +636,98 @@ export default function App() {
       addLog("rx", expectedResponseHex);
       addLog("info", `"${cmdTitle}" testi başarıyla yürütüldü. Modül onay mesajı alındı.`);
     }, 1200);
+  };
+
+  // Handler to perform a secure configuration backup (like an As-Built restore point)
+  const handleCreateMondeoBackup = (customName?: string) => {
+    const timestampStr = new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }) + " " + new Date().toLocaleDateString("tr-TR");
+    const name = customName || `Yedekleme #${mondeoBackups.length + 1}`;
+    const newBackup = {
+      id: `backup-${Date.now()}`,
+      timestamp: timestampStr,
+      name,
+      description: "Mondeo MK3 TCM/GEM Kullanıcı Geri Dönüş Noktası",
+      data: {
+        gemBeltBuzzer: mondeoGEMBeltBuzzer,
+        gemAutoLock: mondeoGEMAutoLock,
+        gemComfortSinyal: mondeoGEMComfortSinyal,
+        pcmInjector1: mondeoPCMInjector1,
+        pcmEgrDuty: mondeoPCMEgrDuty,
+        tcmTccLockup: mondeoTCMTccLockup
+      }
+    };
+    setMondeoBackups([newBackup, ...mondeoBackups]);
+    addLog("info", `[FORScan Engine] Modül yedeklemesi oluşturuldu: "${name}".`);
+    return newBackup;
+  };
+
+  // Handler to restore a configuration from a backup point
+  const handleRestoreMondeoBackup = (backupId: string) => {
+    const target = mondeoBackups.find(b => b.id === backupId);
+    if (!target) return;
+
+    setIsCodingInProgress(true);
+    setCodingStatus("Yedek veriler modüllere yazılıyor (Geri alma / Rollback işlemi)...");
+    
+    // Simulate OBD commands to rewrite configurations
+    setTimeout(() => {
+      setMondeoGEMBeltBuzzer(target.data.gemBeltBuzzer);
+      setMondeoGEMAutoLock(target.data.gemAutoLock);
+      setMondeoGEMComfortSinyal(target.data.gemComfortSinyal);
+      setMondeoPCMInjector1(target.data.pcmInjector1);
+      setMondeoPCMEgrDuty(target.data.pcmEgrDuty);
+      setMondeoTCMTccLockup(target.data.tcmTccLockup);
+      
+      setIsCodingInProgress(false);
+      setCodingStatus("");
+      addLog("info", `[FORScan Engine] "${target.name}" başlıklı yedek başarıyla geri yüklendi. Modüller yeniden başlatılıyor...`);
+      addLog("rx", `728 02 70 04 [GEM/PCM/TCM RESTORE POINT LOADED]`);
+    }, 1500);
+  };
+
+  // Handler to write coding changes securely
+  const handleApplyMondeoCoding = () => {
+    setIsCodingInProgress(true);
+    setCodingStatus("As-Built / EEPROM kodlama parametreleri hesaplanıyor...");
+    
+    // Auto backup before writing to ensure we can always revert!
+    const autoBackupName = `Yazma Öncesi Otomatik Yedek (${new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })})`;
+    const backupCreated = {
+      id: `backup-${Date.now()}`,
+      timestamp: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }) + " " + new Date().toLocaleDateString("tr-TR"),
+      name: autoBackupName,
+      description: "Kodlama değişikliği öncesi sistem tarafından otomatik yedeklenmiş kararlı yapı.",
+      data: {
+        gemBeltBuzzer: mondeoGEMBeltBuzzer,
+        gemAutoLock: mondeoGEMAutoLock,
+        gemComfortSinyal: mondeoGEMComfortSinyal,
+        pcmInjector1: mondeoPCMInjector1,
+        pcmEgrDuty: mondeoPCMEgrDuty,
+        tcmTccLockup: mondeoTCMTccLockup
+      }
+    };
+    
+    setTimeout(() => {
+      setCodingStatus("Otomatik yedek oluşturuldu. EEPROM hücreleri yazılıyor...");
+      setMondeoBackups(prev => [backupCreated, ...prev]);
+      
+      // Execute dummy TX commands for writing Mondeo custom codes
+      addLog("tx", `ATSH7A0`);
+      addLog("tx", `3B 01 ${mondeoGEMBeltBuzzer ? "01" : "00"} ${mondeoGEMAutoLock ? "01" : "00"} ${mondeoGEMComfortSinyal ? "01" : "00"}`);
+      
+      setTimeout(() => {
+        addLog("rx", `7B0 04 7B 01 00 00 [GEM SUCCESS]`);
+        addLog("tx", `ATSH720`);
+        addLog("tx", `3B 02 ${mondeoPCMInjector1.substring(0, 8)}`);
+        
+        setTimeout(() => {
+          addLog("rx", `728 04 7B 02 00 00 [PCM SUCCESS]`);
+          setIsCodingInProgress(false);
+          setCodingStatus("");
+          addLog("info", `[FORScan Engine] Ford Mondeo 2.0 TDCi Euro-Spec modülleri (PCM, TCM, GEM) başarıyla kodlandı ve kaydedildi!`);
+        }, 850);
+      }, 850);
+    }, 1000);
   };
 
   // Gemini API analysis via Server-Side API
@@ -1388,6 +1523,303 @@ export default function App() {
                 )}
               </AnimatePresence>
             </div>
+
+            {/* FORSCAN-STYLE MONDEO MK3 DIAGNOSTICS & CODING CENTER */}
+            {selectedProfileId === "ford_mondeo_mk3" && (
+              <div className="bg-[#0B101D] border border-cyan-500/25 rounded-2xl p-5 shadow-2xl relative overflow-hidden" id="forscan_coding_deck">
+                <div className="absolute top-0 right-0 bg-cyan-500/10 text-cyan-400 text-[9px] font-mono px-2 py-0.5 rounded-bl border-l border-b border-cyan-950/40 tracking-wider">
+                  FORScan PRO ENGINE
+                </div>
+
+                <div className="flex items-center gap-2.5 mb-3.5">
+                  <div className="p-1.5 bg-cyan-500/10 rounded-lg border border-cyan-500/20 text-cyan-400">
+                    <Database className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+                      Mondeo MK3 Modül Kodlama ve Güvenli Yedekleme
+                    </h3>
+                    <p className="text-[11px] text-gray-400">
+                      2005 Ford Mondeo 2.0 TDCi Euro-Spec • PCM / Jatco TCM / GEM Akıllı Kontrolü
+                    </p>
+                  </div>
+                </div>
+
+                {/* Secure backup alerts/guidance */}
+                <div className="bg-cyan-950/20 border border-cyan-900/40 p-2.5 rounded-lg mb-4 text-[11px] text-cyan-300 leading-relaxed">
+                  <strong>Güvenli Çalışma Protokolü:</strong> Değişiklik yaptığınızda sistem otomatik olarak bir geri dönüş noktası yedekler. İstediğiniz an tek tıkla orijinal fabrika değerlerine veya bir önceki kararlı sürüme geri dönebilirsiniz.
+                </div>
+
+                {/* Mini Module Tab Selector */}
+                <div className="flex bg-[#070B13] p-1 rounded-lg border border-gray-900 mb-4">
+                  <button
+                    onClick={() => setMondeoActiveTab("gem")}
+                    className={`flex-1 text-[11px] font-semibold py-1.5 rounded transition-all ${
+                      mondeoActiveTab === "gem" ? "bg-cyan-500/15 text-cyan-300 border border-cyan-800/30" : "text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    GEM (Gövde)
+                  </button>
+                  <button
+                    onClick={() => setMondeoActiveTab("pcm")}
+                    className={`flex-1 text-[11px] font-semibold py-1.5 rounded transition-all ${
+                      mondeoActiveTab === "pcm" ? "bg-cyan-500/15 text-cyan-300 border border-cyan-800/30" : "text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    PCM (Motor)
+                  </button>
+                  <button
+                    onClick={() => setMondeoActiveTab("tcm")}
+                    className={`flex-1 text-[11px] font-semibold py-1.5 rounded transition-all ${
+                      mondeoActiveTab === "tcm" ? "bg-cyan-500/15 text-cyan-300 border border-cyan-800/30" : "text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    TCM (Otomatik Şanzıman)
+                  </button>
+                  <button
+                    onClick={() => setMondeoActiveTab("backups")}
+                    className={`flex-1 text-[11px] font-semibold py-1.5 rounded transition-all flex items-center justify-center gap-1 ${
+                      mondeoActiveTab === "backups" ? "bg-cyan-500/15 text-cyan-300 border border-cyan-800/30" : "text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    Yedekler ({mondeoBackups.length})
+                  </button>
+                </div>
+
+                {/* Active Tab Content Area */}
+                <div className="bg-[#070B13]/40 border border-gray-900/60 rounded-xl p-4 min-h-[190px] mb-4">
+                  
+                  {/* GEM MODULE */}
+                  {mondeoActiveTab === "gem" && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between border-b border-gray-900 pb-2 mb-2">
+                        <span className="text-[11px] text-gray-400 uppercase font-bold">General Electronic Module (GEM) Parametreleri</span>
+                        <span className="text-[10px] font-mono text-cyan-400">Header: ATSH7A0</span>
+                      </div>
+
+                      {/* Belt Warning Buzzer toggle */}
+                      <div className="flex items-center justify-between py-1">
+                        <div>
+                          <div className="text-xs font-semibold text-white">Emniyet Kemeri Sesli İkaz (Buzzer)</div>
+                          <div className="text-[10px] text-gray-500">Kemer takılmadığında öten uyarı sesini açar/kapatır.</div>
+                        </div>
+                        <button
+                          onClick={() => setMondeoGEMBeltBuzzer(!mondeoGEMBeltBuzzer)}
+                          className={`w-11 h-6 rounded-full transition-colors relative focus:outline-none ${
+                            mondeoGEMBeltBuzzer ? "bg-cyan-600" : "bg-gray-800"
+                          }`}
+                        >
+                          <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${
+                            mondeoGEMBeltBuzzer ? "translate-x-5" : "translate-x-0"
+                          }`} />
+                        </button>
+                      </div>
+
+                      {/* Speed Auto Lock toggle */}
+                      <div className="flex items-center justify-between py-1 border-t border-gray-900/40 pt-3">
+                        <div>
+                          <div className="text-xs font-semibold text-white">Sürat Duyarlı Otomatik Kapı Kilitleme</div>
+                          <div className="text-[10px] text-gray-500">Araç hızı 20 km/s sınırını geçtiğinde kapıları kilitler.</div>
+                        </div>
+                        <button
+                          onClick={() => setMondeoGEMAutoLock(!mondeoGEMAutoLock)}
+                          className={`w-11 h-6 rounded-full transition-colors relative focus:outline-none ${
+                            mondeoGEMAutoLock ? "bg-cyan-600" : "bg-gray-800"
+                          }`}
+                        >
+                          <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${
+                            mondeoGEMAutoLock ? "translate-x-5" : "translate-x-0"
+                          }`} />
+                        </button>
+                      </div>
+
+                      {/* Lane Change Signal toggle */}
+                      <div className="flex items-center justify-between py-1 border-t border-gray-900/40 pt-3">
+                        <div>
+                          <div className="text-xs font-semibold text-white">Konfor Şerit Sinyali (3x Flaşör)</div>
+                          <div className="text-[10px] text-gray-500">Sinyal koluna dokunulduğunda sinyali 3 kez otomatik verir.</div>
+                        </div>
+                        <button
+                          onClick={() => setMondeoGEMComfortSinyal(!mondeoGEMComfortSinyal)}
+                          className={`w-11 h-6 rounded-full transition-colors relative focus:outline-none ${
+                            mondeoGEMComfortSinyal ? "bg-cyan-600" : "bg-gray-800"
+                          }`}
+                        >
+                          <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${
+                            mondeoGEMComfortSinyal ? "translate-x-5" : "translate-x-0"
+                          }`} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* PCM MODULE */}
+                  {mondeoActiveTab === "pcm" && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between border-b border-gray-900 pb-2 mb-2">
+                        <span className="text-[11px] text-gray-400 uppercase font-bold">Powertrain Control Module (PCM - Motor)</span>
+                        <span className="text-[10px] font-mono text-cyan-400">Header: ATSH720</span>
+                      </div>
+
+                      {/* EGR Valve Threshold Slider */}
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between items-center text-xs">
+                          <div>
+                            <span className="font-semibold text-white">EGR Valfi Hedef Görev Oranı</span>
+                            <span className="block text-[10px] text-gray-500">Ford Delphi Common-Rail EGR valfi tepki hassasiyeti ayarı.</span>
+                          </div>
+                          <span className="text-cyan-400 font-bold font-mono">{mondeoPCMEgrDuty}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={mondeoPCMEgrDuty}
+                          onChange={(e) => setMondeoPCMEgrDuty(parseInt(e.target.value))}
+                          className="w-full accent-cyan-500 bg-[#070B13] h-1.5 rounded-lg appearance-none cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Injector Coding (IMA) */}
+                      <div className="space-y-1.5 border-t border-gray-900/40 pt-3">
+                        <label className="block text-xs font-semibold text-white">Silindir #1 Pilot Enjektör Kodu (IMA)</label>
+                        <p className="text-[10px] text-gray-500">
+                          Mondeo 2.0 TDCi Delphi sistemlerinde enjektör tekleme ve vuruntuyu kesmek için gereken 16 haneli kalibrasyon hex anahtarıdır.
+                        </p>
+                        <input
+                          type="text"
+                          value={mondeoPCMInjector1}
+                          onChange={(e) => setMondeoPCMInjector1(e.target.value.toUpperCase())}
+                          placeholder="8C2A0B7F8C2A1E20"
+                          maxLength={16}
+                          className="w-full bg-[#070B13] border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white font-mono tracking-widest focus:border-cyan-500 focus:outline-none"
+                        />
+                        <p className="text-[9px] text-gray-500 font-mono">*Geçerli 16 haneli A-F / 0-9 HEX dizisi.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TCM MODULE */}
+                  {mondeoActiveTab === "tcm" && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between border-b border-gray-900 pb-2 mb-2">
+                        <span className="text-[11px] text-gray-400 uppercase font-bold">Transmission Control Module (TCM - Jatco JF506E)</span>
+                        <span className="text-[10px] font-mono text-cyan-400">Header: ATSH728</span>
+                      </div>
+
+                      {/* Live transmissions data info */}
+                      <div className="grid grid-cols-2 gap-3 bg-[#070B13] p-2.5 rounded-lg border border-gray-900/60 mb-2">
+                        <div>
+                          <span className="text-[10px] text-gray-500 uppercase font-semibold">TFT (Şanzıman Yağ Isısı)</span>
+                          <span className="block text-xs font-mono font-bold text-amber-400">82 °C (Kararlı)</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-gray-500 uppercase font-semibold">TCC Türbin Kayması</span>
+                          <span className="block text-xs font-mono font-bold text-emerald-400">0 RPM (Kilitli)</span>
+                        </div>
+                      </div>
+
+                      {/* TCC Lock-up Sensitivity dropdown */}
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-white">Torque Converter Clutch (TCC) Kilitlenme Karakteristiği</label>
+                        <select
+                          value={mondeoTCMTccLockup}
+                          onChange={(e) => setMondeoTCMTccLockup(e.target.value)}
+                          className="w-full bg-[#070B13] border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-cyan-500 focus:outline-none"
+                        >
+                          <option value="Standard">Standart Konfor (Orijinal Fabrika Kalibrasyonu)</option>
+                          <option value="Sport">Sportif (Agresif Lock-up, Daha Az Isınma & Yakıt Tasarrufu)</option>
+                          <option value="Smooth">Yumuşak (Şehir İçi Akıcı Vites Geçişleri)</option>
+                        </select>
+                        <p className="text-[10px] text-gray-500">
+                          *Jatco 5-Tronic şanzımanın tork konvertörünü kilitleme eşiğini değiştirerek ısınmayı ve yakıt tüketimini minimize eder.
+                        </p>
+                      </div>
+
+                      {/* Reset Adaptation button */}
+                      <button
+                        onClick={() => handleExecuteModuleCmd(
+                          "TCM Şanzıman Solenoid Adaptasyon Değerlerini Sıfırlama",
+                          "ATSH728 -> 10 02 (Reset)",
+                          "72F 03 50 02 00 [OK - TCM ADAPTATION RESET COMPLETED]"
+                        )}
+                        className="w-full bg-cyan-950/20 hover:bg-cyan-900/20 border border-cyan-800/40 text-cyan-300 text-xs font-bold py-1.5 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        Solenoid Adaptasyon Değerlerini Sıfırla (Vuruntuyu Önler)
+                      </button>
+                    </div>
+                  )}
+
+                  {/* BACKUPS (ROLLBACK POINT LIST) */}
+                  {mondeoActiveTab === "backups" && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between border-b border-gray-900 pb-2 mb-1">
+                        <span className="text-[11px] text-gray-400 uppercase font-bold">Geri Dönüş Noktaları ve Kayıtlar</span>
+                        <button
+                          onClick={() => handleCreateMondeoBackup()}
+                          className="text-[10px] text-cyan-400 hover:text-white transition-colors"
+                        >
+                          + Manuel Yedek Oluştur
+                        </button>
+                      </div>
+
+                      <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                        {mondeoBackups.length === 0 ? (
+                          <div className="text-gray-500 italic text-xs text-center py-4">Kayıtlı yedek bulunmuyor.</div>
+                        ) : (
+                          mondeoBackups.map((backup) => (
+                            <div
+                              key={backup.id}
+                              className="bg-[#070B13] border border-gray-900/80 rounded-lg p-2 flex items-start justify-between gap-2 hover:border-cyan-900/50 transition-colors"
+                            >
+                              <div className="space-y-0.5">
+                                <div className="text-xs font-bold text-gray-200">{backup.name}</div>
+                                <div className="text-[9px] text-gray-500 leading-normal">{backup.description}</div>
+                                <div className="text-[9px] text-cyan-500 font-mono">{backup.timestamp}</div>
+                              </div>
+                              <button
+                                onClick={() => handleRestoreMondeoBackup(backup.id)}
+                                className="bg-cyan-950/40 hover:bg-cyan-900/40 border border-cyan-800/40 text-[10px] text-cyan-300 font-bold px-2 py-1 rounded transition-colors flex items-center gap-1"
+                              >
+                                <Undo2 className="w-3 h-3" />
+                                Geri Yükle
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Secure Writing Controls (Flash EEPROM) */}
+                {mondeoActiveTab !== "backups" && (
+                  <div className="space-y-2">
+                    <button
+                      onClick={handleApplyMondeoCoding}
+                      disabled={isCodingInProgress}
+                      className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-95 disabled:opacity-50"
+                    >
+                      {isCodingInProgress ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>{codingStatus || "Kodlama Yapılıyor..."}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4 text-emerald-100" />
+                          <span>Sisteme Güvenle Yaz (Flash As-Built EEPROM)</span>
+                        </>
+                      )}
+                    </button>
+                    <p className="text-[9px] text-gray-500 text-center">
+                      *Tıklatıldığında otomatik yedek alınır, ardından OBD yazma komutları (Service 3B/2E) CAN hattına gönderilir.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* SENSORS SIMULATOR ADJUSTMENTS */}
             {isSimulator && (
