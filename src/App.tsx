@@ -304,16 +304,23 @@ export default function App() {
     }
   };
 
-  // Helper: write BLE command
+  // Helper: write BLE command with writeValueWithoutResponse fallback
   const sendBLECommand = async (cmd: string) => {
     if (!writeCharRef.current) return;
     try {
       addLog("tx", cmd);
       const encoder = new TextEncoder();
       const data = encoder.encode(cmd + "\r");
-      await writeCharRef.current.writeValue(data);
+      const char = writeCharRef.current;
+      if (char.properties.write) {
+        await char.writeValue(data);
+      } else if (char.properties.writeWithoutResponse) {
+        await char.writeValueWithoutResponse(data);
+      } else {
+        await char.writeValue(data);
+      }
     } catch (err: any) {
-      addLog("error", `Komut gönderme başarısız: ${err.message}`);
+      addLog("error", `Komut gönderme başarısız (${cmd}): ${err.message}`);
     }
   };
 
