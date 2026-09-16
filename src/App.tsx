@@ -46,6 +46,10 @@ const NORDIC_TX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // notify
 const VGATE_SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb";
 const VGATE_CHAR_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"; // write & notify
 
+const FFF0_SERVICE_UUID = "0000fff0-0000-1000-8000-00805f9b34fb";
+const FFF1_CHAR_UUID = "0000fff1-0000-1000-8000-00805f9b34fb"; // notify
+const FFF2_CHAR_UUID = "0000fff2-0000-1000-8000-00805f9b34fb"; // write
+
 // Vehicle Profile Definitions
 interface VehicleProfile {
   id: string;
@@ -324,84 +328,63 @@ export default function App() {
     }
   };
 
-  // Web Bluetooth: Notification handler
-  const handleBluetoothNotification = useCallback((event: any) => {
-    const value = event.target.value;
-    const decoder = new TextDecoder("utf-8");
-    const chunk = decoder.decode(value);
-    
-    responseBufferRef.current += chunk;
-
-    // ELM327 outputs are typically terminated with a '>' prompt when finished
-    if (responseBufferRef.current.includes(">")) {
-      const fullResponse = responseBufferRef.current.replace(">", "").trim();
-      addLog("rx", fullResponse);
-      
-      // Parse response
-      const commands = ["010C", "0105", "010D", "03"];
-      const activeCommand = commands[currentCommandIdxRef.current];
-
-      try {
-        const parsed = parseOBDResponse(activeCommand, fullResponse);
-        if (parsed) {
-          if (parsed.rpm !== undefined) setRpm(parsed.rpm);
-          if (parsed.coolantTemp !== undefined) setCoolantTemp(parsed.coolantTemp);
-          if (parsed.speed !== undefined) setSpeed(parsed.speed);
-          if (parsed.dtcCodes !== undefined) setDtcCodes(parsed.dtcCodes);
-        }
-      } catch (parseErr: any) {
-        addLog("error", `Ayrıştırma hatası: ${parseErr.message}`);
-      }
-
-      // Reset buffer for next command
-      responseBufferRef.current = "";
-    }
-  }, [addLog]);
-
-  // Parser logic for OBD Responses
-  const parseOBDResponse = (command: string, response: string) => {
-    const cleanCmd = command.replace(/\s+/g, "").toUpperCase();
+  // Parser logic for OBD Responses (auto-detects PIDs and responses dynamically)
+  const parseOBDResponse = (response: string) => {
     const cleanRes = response.replace(/[\s\r\n>]+/g, "").toUpperCase();
+    const result: any = {};
     
-    if (cleanCmd === "010C") {
-      const idx = cleanRes.indexOf("410C");
-      if (idx !== -1 && cleanRes.length >= idx + 8) {
-        const a = parseInt(cleanRes.substring(idx + 4, idx + 6), 16);
-        const b = parseInt(cleanRes.substring(idx + 6, idx + 8), 16);
-        if (!isNaN(a) && !isNaN(b)) {
-          return { rpm: Math.round(((a * 256) + b) / 4) };
+    // 1. Mode 01 PID 0C (Engine RPM) -> ((A * 256) + B) / 4
+    const rpmIdx = cleanRes.indexOf("410C");
+    if (rpmIdx !== -1 && cleanRes.length >= rpmIdx + 8) {
+      const a = parseInt(cleanRes.substring(rpmIdx + 4, rpmIdx + 6), 16);
+      const b = parseInt(cleanRes.substring(rpmIdx + 6, rpmIdx + 8), 16);
+      if (!isNaN(a) && !isNaN(b)) {
+        const rpmVal = Math.round(((a * 256) + b) / 4);
+        if (rpmVal >= 0 && rpmVal <= 10000) {
+          result.rpm = rpmVal;
         }
       }
-    } else if (cleanCmd === "0105") {
-      const idx = cleanRes.indexOf("4105");
-      if (idx !== -1 && cleanRes.length >= idx + 6) {
-        const a = parseInt(cleanRes.substring(idx + 4, idx + 6), 16);
-        if (!isNaN(a)) {
-          return { coolantTemp: a - 40 };
+    }
+
+    // 2. Mode 01 PID 05 (Engine Coolant Temp) -> A - 40
+    const tempIdx = cleanRes.indexOf("4105");
+    if (tempIdx !== -1 && cleanRes.length >= tempIdx + 6) {
+      const a = parseInt(cleanRes.substring(tempIdx + 4, tempIdx + 6), 16);
+      if (!isNaN(a)) {
+        const tempVal = a - 40;
+        if (tempVal >= -40 && tempVal <= 215) {
+          result.coolantTemp = tempVal;
         }
       }
-    } else if (cleanCmd === "010D") {
-      const idx = cleanRes.indexOf("410D");
-      if (idx !== -1 && cleanRes.length >= idx + 6) {
-        const a = parseInt(cleanRes.substring(idx + 4, idx + 6), 16);
-        if (!isNaN(a)) {
-          return { speed: a };
+    }
+
+    // 3. Mode 01 PID 0D (Vehicle Speed) -> A
+    const speedIdx = cleanRes.indexOf("410D");
+    if (speedIdx !== -1 && cleanRes.length >= speedIdx + 6) {
+      const a = parseInt(cleanRes.substring(speedIdx + 4, speedIdx + 6), 16);
+      if (!isNaN(a)) {
+        if (a >= 0 && a <= 350) {
+          result.speed = a;
         }
       }
-    } else if (cleanCmd === "03") {
-      const idx = cleanRes.indexOf("43");
-      if (idx !== -1) {
+    }
+
+    // 4. Mode 03 (Diagnostic Trouble Codes - DTC)
+    const dtcIdx = cleanRes.indexOf("43");
+    if (dtcIdx !== -1) {
+      const hexPayload = cleanRes.substring(dtcIdx + 2);
+      if (cleanRes.includes("NODATA") || hexPayload.startsWith("0000") || hexPayload === "00" || hexPayload === "") {
+        result.dtcCodes = [];
+      } else {
         const codes: string[] = [];
-        const hexPayload = cleanRes.substring(idx + 2);
         for (let i = 0; i < hexPayload.length; i += 4) {
           if (i + 4 <= hexPayload.length) {
             const firstByte = hexPayload.substring(i, i + 2);
             const secondByte = hexPayload.substring(i + 2, i + 4);
             if (firstByte === "00" && secondByte === "00") continue;
             
-            // Decipher OBD-II standard DTC type
             const d1Hex = firstByte.charAt(0);
-            let d1 = "P";
+            let d1 = "P0";
             if (d1Hex === "0") d1 = "P0";
             else if (d1Hex === "1") d1 = "P1";
             else if (d1Hex === "2") d1 = "P2";
@@ -425,11 +408,52 @@ export default function App() {
             }
           }
         }
-        return { dtcCodes: codes };
+        result.dtcCodes = codes;
       }
     }
-    return null;
+
+    return Object.keys(result).length > 0 ? result : null;
   };
+
+  // Web Bluetooth: Notification handler
+  const handleBluetoothNotification = useCallback((event: any) => {
+    const value = event.target.value;
+    const decoder = new TextDecoder("utf-8");
+    const chunk = decoder.decode(value);
+    
+    responseBufferRef.current += chunk;
+
+    // ELM327 outputs are terminated with a '>' prompt or line break
+    if (responseBufferRef.current.includes(">") || responseBufferRef.current.includes("\r")) {
+      const fullResponse = responseBufferRef.current.replace(">", "").trim();
+      if (fullResponse.length > 0) {
+        addLog("rx", fullResponse);
+        
+        try {
+          const parsed = parseOBDResponse(fullResponse);
+          if (parsed) {
+            if (parsed.rpm !== undefined) setRpm(parsed.rpm);
+            if (parsed.coolantTemp !== undefined) setCoolantTemp(parsed.coolantTemp);
+            if (parsed.speed !== undefined) setSpeed(parsed.speed);
+            if (parsed.dtcCodes !== undefined) {
+              setDtcCodes(parsed.dtcCodes);
+              if (parsed.dtcCodes.length === 0) {
+                addLog("info", "Arıza Kaydı: Aktif arıza kodu bulunamadı (ECU temiz).");
+              } else {
+                addLog("error", `Arıza Kodları Çözümlendi: ${parsed.dtcCodes.join(", ")}`);
+              }
+            }
+          }
+        } catch (parseErr: any) {
+          addLog("error", `Ayrıştırma hatası: ${parseErr.message}`);
+        }
+      }
+
+      if (responseBufferRef.current.includes(">") || responseBufferRef.current.length > 200) {
+        responseBufferRef.current = "";
+      }
+    }
+  }, [addLog]);
 
   // Web Bluetooth GATT Connection Workflow
   const connectWebBluetooth = async () => {
@@ -535,13 +559,13 @@ export default function App() {
           throw new Error(`Belirttiğiniz özel UUID servisleri cihazda bulunamadı: ${eCustom.message}`);
         }
       } else {
-        // Auto detection mode with universal primary services fallback
-        addLog("info", "Profil Filtresi: Otomatik algılama devrede. Vgate / LELink servisi deneniyor...");
+        // Auto detection mode with FFF0 and universal primary services fallback
+        addLog("info", "Profil Filtresi: Otomatik algılama devrede. Vgate / LELink (FFE0) servisi deneniyor...");
         try {
           service = await server.getPrimaryService(VGATE_SERVICE_UUID);
           rxChar = await service.getCharacteristic(VGATE_CHAR_UUID);
           txChar = rxChar; 
-          addLog("info", "Vgate / LELink standart BLE OBD servisi başarıyla kuruldu.");
+          addLog("info", "Vgate / LELink (FFE0) standart BLE OBD servisi başarıyla kuruldu.");
         } catch (e) {
           addLog("info", "Vgate servisi bulunamadı. Nordic UART (NUS) servisi deneniyor...");
           try {
@@ -550,32 +574,44 @@ export default function App() {
             txChar = await service.getCharacteristic(NORDIC_TX_CHAR_UUID);
             addLog("info", "Nordic UART (NUS) BLE OBD servisi başarıyla kuruldu.");
           } catch (e2) {
-            addLog("info", "Standart servisler bulunamadı. Cihazdaki tüm birincil servisler taranıyor (Universal ELM327 Fallback)...");
+            addLog("info", "Nordic servisi bulunamadı. FFF0 servisi deneniyor...");
             try {
-              const services = await server.getPrimaryServices();
-              let found = false;
-              for (const s of services) {
-                try {
-                  const chars = await s.getCharacteristics();
-                  const writable = chars.find((c: any) => c.properties.write || c.properties.writeWithoutResponse);
-                  const notifyable = chars.find((c: any) => c.properties.notify || c.properties.indicate || c.properties.read);
-                  if (writable && notifyable) {
-                    service = s;
-                    rxChar = writable;
-                    txChar = notifyable;
-                    found = true;
-                    addLog("info", `Evrensel eşleşme bulundu! Servis UUID: ${s.uuid}`);
-                    break;
+              service = await server.getPrimaryService(FFF0_SERVICE_UUID);
+              txChar = await service.getCharacteristic(FFF1_CHAR_UUID);
+              try {
+                rxChar = await service.getCharacteristic(FFF2_CHAR_UUID);
+              } catch {
+                rxChar = txChar;
+              }
+              addLog("info", "FFF0 tabanlı BLE OBD servisi başarıyla kuruldu.");
+            } catch (e3) {
+              addLog("info", "Standart servisler bulunamadı. Cihazdaki tüm birincil servisler taranıyor (Universal ELM327 Fallback)...");
+              try {
+                const services = await server.getPrimaryServices();
+                let found = false;
+                for (const s of services) {
+                  try {
+                    const chars = await s.getCharacteristics();
+                    const writable = chars.find((c: any) => c.properties.write || c.properties.writeWithoutResponse);
+                    const notifyable = chars.find((c: any) => c.properties.notify || c.properties.indicate || c.properties.read);
+                    if (writable && notifyable) {
+                      service = s;
+                      rxChar = writable;
+                      txChar = notifyable;
+                      found = true;
+                      addLog("info", `Evrensel eşleşme bulundu! Servis UUID: ${s.uuid}`);
+                      break;
+                    }
+                  } catch (errChar) {
+                    // continue
                   }
-                } catch (errChar) {
-                  // continue
                 }
+                if (!found) {
+                  throw new Error("Cihazda yazılabilir/okunabilir UART karakteristikleri bulunamadı.");
+                }
+              } catch (eUniversal) {
+                throw new Error("Uyumlu bir ELM327 OBD BLE servisi bulunamadı. Lütfen Ayarlar'dan manuel bağlantı profilini seçin.");
               }
-              if (!found) {
-                throw new Error("Cihazda yazılabilir/okunabilir UART karakteristikleri bulunamadı.");
-              }
-            } catch (eUniversal) {
-              throw new Error("Uyumlu bir ELM327 OBD BLE servisi bulunamadı. Lütfen Ayarlar'dan manuel bağlantı profilini seçin.");
             }
           }
         }
@@ -589,16 +625,24 @@ export default function App() {
 
       setBtState("connected");
       setIsSimulator(false); 
-      addLog("info", `Bluetooth Bağlantısı Aktif! ELM327 adaptörüne ${activeProfile.name} özel komut dizini gönderiliyor...`);
+      addLog("info", "Bluetooth GATT bağlantısı kuruldu. ELM327 el sıkışması başlatılıyor (ATZ, ATE0, ATSP0)...");
 
-      // Send AT initialization sequence tailored to profile
+      // Required ELM327 Initialization Routine: ATZ -> ATE0 -> ATSP0
       await new Promise(r => setTimeout(r, 600));
-      for (const cmd of activeProfile.initCommands) {
-        await sendBLECommand(cmd);
-        await new Promise(r => setTimeout(r, 600));
-      }
+      await sendBLECommand("ATZ");
+      await new Promise(r => setTimeout(r, 1200));
+      await sendBLECommand("ATE0");
+      await new Promise(r => setTimeout(r, 400));
+      await sendBLECommand("ATL0");
+      await new Promise(r => setTimeout(r, 300));
+      await sendBLECommand("ATH0");
+      await new Promise(r => setTimeout(r, 300));
+      await sendBLECommand("ATSP0");
+      await new Promise(r => setTimeout(r, 800));
 
-      // Start OBD Polling loop
+      addLog("info", "ELM327 hazır! Canlı OBD2 veri akışı ve PID sorgulama döngüsü başlatılıyor...");
+
+      // Start continuous OBD PID Polling loop
       startPollingLoop();
 
       // Mondeo specific automatic read and initial backup on connection
@@ -640,20 +684,21 @@ export default function App() {
     if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
   }, [addLog]);
 
-  // Start polling OBD PIDs sequentially
+  // Start polling OBD PIDs sequentially (Live Telemetry Loop)
   const startPollingLoop = () => {
     if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
 
-    const commands = ["010C", "0105", "010D", "03"];
+    const commands = ["010C", "010D", "0105"];
     pollingIntervalRef.current = setInterval(async () => {
-      if (btState !== "connected" || !writeCharRef.current) return;
+      // Check live ref directly to avoid stale closures
+      if (!writeCharRef.current || !gattServerRef.current?.connected) return;
 
-      const currentCmd = commands[currentCommandIdxRef.current];
+      const currentCmd = commands[currentCommandIdxRef.current % commands.length];
       await sendBLECommand(currentCmd);
 
       // Cycle commands
       currentCommandIdxRef.current = (currentCommandIdxRef.current + 1) % commands.length;
-    }, 1000); 
+    }, 1200); 
   };
 
   // Disconnect Bluetooth
@@ -669,13 +714,13 @@ export default function App() {
     addLog("info", "Bluetooth bağlantısı kullanıcı tarafından sonlandırıldı.");
   };
 
-  // Simulate scanning progress UI
+  // Scan DTC Diagnostic Trouble Codes (Mode 03)
   const handleScanDtc = async () => {
     setIsScanningDtc(true);
     setScanProgress(0);
     setScanMessage("Araç sistemleri ve CAN Bus taranıyor...");
 
-    if (btState === "connected" && writeCharRef.current) {
+    if (writeCharRef.current && gattServerRef.current?.connected) {
       addLog("info", "Gerçek ELM327 / vLink adaptörüne Mode 03 (DTC Arıza Oku) komutu gönderiliyor...");
       await sendBLECommand("03");
     }
@@ -2154,14 +2199,13 @@ export default function App() {
 
                 <button
                   onClick={async () => {
-                    if (btState === "connected" && writeCharRef.current) {
+                    if (writeCharRef.current && gattServerRef.current?.connected) {
                       addLog("info", "Gerçek adaptöre Mode 04 (Hata Kodlarını Sil / MIL Söndür) komutu gönderiliyor...");
                       await sendBLECommand("04");
                     }
                     setDtcCodes([]);
                     setSimErrorType("NONE");
-                    addLog("info", "ECU hata hafızası silme komutu gönderildi (PID: 04). Motor arıza lambası söndürüldü.");
-                    alert("ECU Hata Hafızası Sıfırlandı. Motor Arıza Lambası (Check Engine) söndürüldü.");
+                    addLog("info", "ECU hata hafızası silme komutu gönderildi (PID: 04). Motor arıza lambası (MIL) söndürüldü.");
                   }}
                   className="bg-[#0E1726] hover:bg-[#1B1212] border border-gray-800 hover:border-red-950 text-gray-300 hover:text-red-400 text-xs py-2 px-3 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-all"
                   id="btn_clear_dtc"
