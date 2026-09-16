@@ -459,6 +459,7 @@ export default function App() {
         addLog("info", `Özel isim öneki filtresi aktif: "${customDevicePrefix.trim()}"`);
       } else {
         options.filters = [
+          { namePrefix: "iCar" },
           { namePrefix: "OBD" },
           { namePrefix: "ELM" },
           { namePrefix: "V-LINK" },
@@ -468,7 +469,7 @@ export default function App() {
           { namePrefix: "Viecar" },
           { namePrefix: "Veepeak" }
         ];
-        addLog("info", "Standart OBD2 BLE filtreleri aktif (OBD, ELM, VGATE, LELink vb. aranıyor)...");
+        addLog("info", "Standart OBD2 BLE filtreleri aktif (iCar, OBD, ELM, VGATE vb. aranıyor)...");
       }
 
       const device = await nav.bluetooth.requestDevice(options);
