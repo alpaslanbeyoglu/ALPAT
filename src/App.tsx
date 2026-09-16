@@ -439,7 +439,16 @@ export default function App() {
       addLog("info", "Bluetooth tarama parametreleri yapılandırılıyor...");
 
       const options: any = {};
-      const targetServices = [NORDIC_UART_SERVICE_UUID, VGATE_SERVICE_UUID];
+      const targetServices = [
+        NORDIC_UART_SERVICE_UUID, 
+        VGATE_SERVICE_UUID,
+        "0xfff0", "fff0", 
+        "0xffe0", "ffe0", 
+        "0xffee", "ffee", 
+        "0x18f0", "18f0", 
+        "0xfee0", "fee0",
+        "ffe5", "0xffe5"
+      ];
 
       if (bleProfile === "custom" && customServiceUuid.trim()) {
         const cleanUuid = customServiceUuid.trim().toLowerCase();
@@ -518,8 +527,8 @@ export default function App() {
           throw new Error(`Belirttiğiniz özel UUID servisleri cihazda bulunamadı: ${eCustom.message}`);
         }
       } else {
-        // Auto detection mode
-        addLog("info", "Profil Filtresi: Otomatik algılama devrede. Vgate servisi deneniyor...");
+        // Auto detection mode with universal primary services fallback
+        addLog("info", "Profil Filtresi: Otomatik algılama devrede. Vgate / LELink servisi deneniyor...");
         try {
           service = await server.getPrimaryService(VGATE_SERVICE_UUID);
           rxChar = await service.getCharacteristic(VGATE_CHAR_UUID);
@@ -533,7 +542,33 @@ export default function App() {
             txChar = await service.getCharacteristic(NORDIC_TX_CHAR_UUID);
             addLog("info", "Nordic UART (NUS) BLE OBD servisi başarıyla kuruldu.");
           } catch (e2) {
-            throw new Error("Uyumlu bir ELM327 OBD BLE servisi bulunamadı. Lütfen Ayarlar'dan manuel bağlantı profilini veya tüm cihazları seçmeyi deneyin.");
+            addLog("info", "Standart servisler bulunamadı. Cihazdaki tüm birincil servisler taranıyor (Universal ELM327 Fallback)...");
+            try {
+              const services = await server.getPrimaryServices();
+              let found = false;
+              for (const s of services) {
+                try {
+                  const chars = await s.getCharacteristics();
+                  const writable = chars.find((c: any) => c.properties.write || c.properties.writeWithoutResponse);
+                  const notifyable = chars.find((c: any) => c.properties.notify || c.properties.indicate || c.properties.read);
+                  if (writable && notifyable) {
+                    service = s;
+                    rxChar = writable;
+                    txChar = notifyable;
+                    found = true;
+                    addLog("info", `Evrensel eşleşme bulundu! Servis UUID: ${s.uuid}`);
+                    break;
+                  }
+                } catch (errChar) {
+                  // continue
+                }
+              }
+              if (!found) {
+                throw new Error("Cihazda yazılabilir/okunabilir UART karakteristikleri bulunamadı.");
+              }
+            } catch (eUniversal) {
+              throw new Error("Uyumlu bir ELM327 OBD BLE servisi bulunamadı. Lütfen Ayarlar'dan manuel bağlantı profilini seçin.");
+            }
           }
         }
       }
